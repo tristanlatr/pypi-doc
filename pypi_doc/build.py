@@ -196,7 +196,7 @@ def run_pydoctor(package_names:Sequence[str],
                 '--quiet', 
             ] + to_be_documented
     
-    print(f"[-] running 'pydoctor ...'")
+    print(f"[-] running pydoctor...")
     
     _f = io.StringIO()
 
@@ -227,14 +227,14 @@ def main(args: Sequence[str] = sys.argv[1:]) -> int:
         if len(parts)>1:
             versions[parts[0]] = parts[1]
 
-    # fetch sources
+    # 1. fetch sources
 
     print('[+] fetching sources...')
     package_infos = {}
     
     pydoctor_args = options.pydoctor_args or []
     
-    packages = { p:{'pydoctor_args': pydoctor_args } for p in package_list }
+    packages = { p:pydoctor_args for p in package_list }
 
     for package_name in packages:
         pkg_info = fetch_source(package_name, 
@@ -249,26 +249,11 @@ def main(args: Sequence[str] = sys.argv[1:]) -> int:
     dist = options.build_dir
     dist.mkdir(exist_ok=True)
     
-    intersphinx_args:List[str] = []
-    _is_verbose = options.verbose
-        
     _pydoctor_exit_code = run_pydoctor(list(packages), 
         versions, 
         sources=sources, 
         dist=dist, 
-        args=intersphinx_args + packages[package_name]['pydoctor_args'], 
-        verbose=_is_verbose)
-
-    # # 3. create latest symlinks, for packages that we actually created docs for.
-    # for package_name, version in versions.items():
-    #     if package_name not in packages:
-    #         continue
-    #     latest = dist / package_name / 'latest'
-    #     try:
-    #         latest.unlink(missing_ok=True)
-    #     except IsADirectoryError:
-    #         # Github transform symlink to actual directories it seem...
-    #         shutil.rmtree(latest.as_posix())
-    #     latest.symlink_to(version)
+        args=packages[package_name], 
+        verbose=options.verbose)
 
     return _pydoctor_exit_code
