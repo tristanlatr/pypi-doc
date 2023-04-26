@@ -3,5 +3,5 @@
 Example:
 
 ```
-pypi_doc --pack=pythran --pack=beniget --pack=gast
+pypi-doc --pack=pythran --pack=beniget --pack=gast
 ```
