@@ -1,0 +1,7 @@
+build
+__pycache__
+apidocs
+.tox
+.pypi-doc-sources
+*.egg-info
+.pytype
