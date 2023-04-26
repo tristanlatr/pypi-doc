@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Sequence, cast
 
 import pydoctor.driver
 import requests
+import appdirs
 
 def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -191,11 +192,11 @@ def run_pydoctor(package_names:Sequence[str],
     # generating args
     _args = args + [
                 f'--html-output={dist}',
-                f'--project-base-dir={sources/sourceid}',
+                f'--project-base-dir={sources}',
                 '--quiet', 
             ] + to_be_documented
     
-    print(f"[-] running 'pydoctor {' '.join(_args)}'")
+    print(f"[-] running 'pydoctor ...'")
     
     _f = io.StringIO()
 
@@ -212,9 +213,7 @@ def run_pydoctor(package_names:Sequence[str],
 
 def main(args: Sequence[str] = sys.argv[1:]) -> int:
     options = cast(Options, get_parser().parse_args(args))
-
-    # TODO: make the sources directory configurable
-    sources = Path('./.pypi-doc-sources')
+    sources = Path(appdirs.user_cache_dir('pypi-doc'))
     sources.mkdir(exist_ok=True, parents=True)
 
     # Figure the packages list we want to build the documentation for
