@@ -8,6 +8,8 @@ import io
 import os
 import tarfile
 import tempfile
+import time
+import datetime
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, cast
@@ -42,7 +44,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--package', metavar="PACKAGE", 
                         help="Builds the selected package from PyPI, can repeat to build multiple packages. ",
                         action='extend', dest='packages', required=True, nargs='+')
-    parser.add_argument('--options', '--pydoctor-options', '--pydoctor-args', dest='pydoctor_options',
+    parser.add_argument('--options', dest='pydoctor_options',
                         action='extend', default=[], nargs='+',
                         help="Use the given pydoctor option, can repeat to to add more options. "
                              "Format should be the same as in the pydoctor config file.", )
@@ -52,13 +54,17 @@ def get_parser() -> argparse.ArgumentParser:
                         type=int, default=120, help="Build timeout, in minutes.",)
     parser.add_argument('--verbose', action='store_true', dest='verbose', default=False,
                         help="Print pydoctor output",)
+    parser.add_argument('--cache-max-age', metavar='HOURS', help="TTL of downloaded sources.", 
+                        type=int, default=480, dest='cache_max_age')
     return parser
 
 class Options(argparse.Namespace):
     build_dir: Path
     build_timeout: int
-    packages: Optional[List[str]]
+    packages: List[str]
+    options: List[str]
     verbose: bool
+    cache_max_age: int
 
 def fetch_package_info(package_name: str) -> Dict[str, Any]:
     return cast('Dict[str, Any]', requests.get(f'https://pypi.org/pypi/{package_name}/json',
@@ -224,15 +230,27 @@ def run_pydoctor(package_names:Sequence[str],
     
     _pydoctor_output = _f.getvalue()
     nb_messages = len(_pydoctor_output.splitlines())
-    print(f'[-] Got {nb_messages} messages')
+    print(f'[-] got {nb_messages} messages')
     if verbose and nb_messages>0:
         print(_pydoctor_output)
     return code
+
+def cleanup_cache_dir(sources:Path, cache_ttl:int):
+    # cache_ttl in hours
+    now = datetime.datetime.now()
+    for entry in sources.iterdir():
+        try:
+            then = datetime.datetime.fromtimestamp((entry/'index.html').stat().st_mtime)
+            if (now-then) > datetime.timedelta(hours=cache_ttl):
+                shutil.rmtree(entry, ignore_errors=True)
+        except Exception:
+            pass
 
 def main(args: Sequence[str] = sys.argv[1:]) -> int:
     options = cast(Options, get_parser().parse_args(args))
     sources = Path(appdirs.user_cache_dir('pypi-doc'))
     sources.mkdir(exist_ok=True, parents=True)
+    cleanup_cache_dir(sources, options.cache_max_age)
 
     # Figure the packages list we want to build the documentation for
     assert options.packages is not None
@@ -276,11 +294,21 @@ def main(args: Sequence[str] = sys.argv[1:]) -> int:
             arguments = [f"--config={config_file}"]
         else:
             arguments = []
-    
-        return run_pydoctor(package_list, 
+        
+        then = time.time()
+        code =  run_pydoctor(package_list, 
             versions, 
             sources=sources, 
             dist=dist, 
             args=arguments, 
             verbose=options.verbose)
+        now = time.time()
+        if code!=-1:
+            delta = now-then
+            if delta>120:
+                print(f'[+] took {round(delta/60, 2)} minutes')
+            else:
+                print(f'[+] took {round(delta, 2)} seconds')
+        return code
+
 
