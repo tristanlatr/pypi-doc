@@ -5,15 +5,34 @@ import shutil
 import sys
 import contextlib
 import io
+import os
 import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, cast
+import tempfile
 
 import pydoctor.driver
 import requests
 import appdirs
+
+
+@contextlib.contextmanager
+def temporary_filename(suffix=None):
+  """
+  Context that introduces a temporary file.
+
+  Yields:
+    The name of the temporary file.
+  """
+  try:
+    f = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    tmp_name = f.name
+    f.close()
+    yield tmp_name
+  finally:
+    os.unlink(tmp_name)
 
 def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -22,17 +41,17 @@ def get_parser() -> argparse.ArgumentParser:
                             prog='pypi-doc')
     parser.add_argument('--package', metavar="PACKAGE", 
                         help="Builds the selected package from PyPI, can repeat to build multiple packages. ",
-                        action='append', default=None, dest='packages', required=True)
+                        action='extend', dest='packages', required=True, nargs='+')
+    parser.add_argument('--options', '--pydoctor-options', '--pydoctor-args', dest='pydoctor_options',
+                        action='extend', default=[], nargs='+',
+                        help="Use the given pydoctor option, can repeat to to add more options. "
+                             "Format should be the same as in the pydoctor config file.", )
     parser.add_argument('--html-output', metavar="PATH", dest='build_dir',
-                        help="Build directory.", 
-                        type=Path, default='apidocs')
+                        type=Path, default='apidocs', help="Output directory.", )
     parser.add_argument('--build-timeout', metavar="MINUTES", dest='build_timeout',
-                        help="Build timeout, in minutes.", 
-                        type=int, default=120)
-    parser.add_argument('--verbose', action='store_true', dest='verbose',
-                        help="Print pydoctor output", default=False)
-    parser.add_argument('--argument', dest='pydoctor_args',
-                        action='append', help="Use the given pydoctor argument, can repeat to to add more arguments.", default=None,)
+                        type=int, default=120, help="Build timeout, in minutes.",)
+    parser.add_argument('--verbose', action='store_true', dest='verbose', default=False,
+                        help="Print pydoctor output",)
     return parser
 
 class Options(argparse.Namespace):
@@ -195,19 +214,18 @@ def run_pydoctor(package_names:Sequence[str],
                 f'--project-base-dir={sources}',
                 '--quiet', 
             ] + to_be_documented
-    
-    print(f"[-] running pydoctor...")
-    
+        
     _f = io.StringIO()
 
     code:int = -1
+
     with contextlib.redirect_stdout(_f):
         code = pydoctor.driver.main(_args)
     
     _pydoctor_output = _f.getvalue()
-    nb_warnings = len(_pydoctor_output.splitlines())
-    print(f'[-] Got {nb_warnings} warnings')
-    if verbose and nb_warnings>0:
+    nb_messages = len(_pydoctor_output.splitlines())
+    print(f'[-] Got {nb_messages} messages')
+    if verbose and nb_messages>0:
         print(_pydoctor_output)
     return code
 
@@ -232,11 +250,9 @@ def main(args: Sequence[str] = sys.argv[1:]) -> int:
     print('[+] fetching sources...')
     package_infos = {}
     
-    pydoctor_args = options.pydoctor_args or []
-    
-    packages = { p:pydoctor_args for p in package_list }
+    pydoctor_options = options.pydoctor_options or []
 
-    for package_name in packages:
+    for package_name in package_list:
         pkg_info = fetch_source(package_name, 
                                 versions.get(package_name), 
                                 sources)
@@ -248,12 +264,23 @@ def main(args: Sequence[str] = sys.argv[1:]) -> int:
     print('[+] generating docs...')
     dist = options.build_dir
     dist.mkdir(exist_ok=True)
-    
-    _pydoctor_exit_code = run_pydoctor(list(packages), 
-        versions, 
-        sources=sources, 
-        dist=dist, 
-        args=packages[package_name], 
-        verbose=options.verbose)
 
-    return _pydoctor_exit_code
+    with temporary_filename('pypi-doc.ini') as config_file:
+
+        if pydoctor_options:
+            with open(config_file, 'w') as f:
+                f.write('[pydoctor]\n')
+                for option in pydoctor_options:
+                    f.write(option); f.write('\n')
+
+            arguments = [f"--config={config_file}"]
+        else:
+            arguments = []
+    
+        return run_pydoctor(package_list, 
+            versions, 
+            sources=sources, 
+            dist=dist, 
+            args=arguments, 
+            verbose=options.verbose)
+
